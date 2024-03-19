@@ -24,24 +24,25 @@ public class AppController {
 
     @GetMapping("/ticket")
     public void sellTicket() {
-        String luaScript =
+        String lockLuaScript =
                 "if redis.call('setnx',KEYS[1],ARGV[1]) == 1 " +
                         "then redis.call('expire',KEYS[1],ARGV[2]) ;" +
                         "return true " +
-                "else return false " +
-                "end";
+                        "else return false " +
+                        "end";
 
         // 生产环境替换为 uuid + 线程 id
         String VALUE = String.valueOf(Thread.currentThread().getId());
         Boolean isLocked = stringRedisTemplate.execute(new RedisCallback<Boolean>() {
             @Override
             public Boolean doInRedis(RedisConnection connection) throws DataAccessException {
-               return connection.eval(luaScript.getBytes(),
+                return connection.eval(lockLuaScript.getBytes(),
                         ReturnType.BOOLEAN,
                         1,
                         LOCK.getBytes(),
                         VALUE.getBytes(),  // 用于判断是否为当前线程加的锁
-                        "10000".getBytes());
+                        "5".getBytes()
+                );
             }
         });
         if (Boolean.TRUE.equals(isLocked)) {
@@ -54,10 +55,28 @@ public class AppController {
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
-                String LOCK_ID = stringRedisTemplate.opsForValue().get(LOCK);
-                if (LOCK_ID != null && LOCK_ID.equals(VALUE)) {
-                    stringRedisTemplate.delete(LOCK);
-                }
+//                // 判断是否是自己加的锁，如果是则释放 缺点：非原子操作
+//                String LOCK_ID = stringRedisTemplate.opsForValue().get(LOCK);
+//                if (LOCK_ID != null && LOCK_ID.equals(VALUE)) {
+//                    stringRedisTemplate.delete(LOCK);
+//                }
+                String unlockLuaScript =
+                        "if redis.call('get',KEYS[1]) == ARGV[1] " +
+                                "then redis.call('del',KEYS[1]); " +
+                                "return true " +
+                                "else return false " +
+                                "end";
+                stringRedisTemplate.execute(new RedisCallback<Object>() {
+                    @Override
+                    public Object doInRedis(RedisConnection connection) throws DataAccessException {
+                        return connection.eval(unlockLuaScript.getBytes(),
+                                ReturnType.BOOLEAN,
+                                1,
+                                LOCK.getBytes(),
+                                VALUE.getBytes()
+                        );
+                    }
+                });
             }
         } else {
             System.out.println("Field");
