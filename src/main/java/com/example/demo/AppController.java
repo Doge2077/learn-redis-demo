@@ -30,7 +30,6 @@ public class AppController {
                         "return true " +
                         "else return false " +
                         "end";
-
         // 生产环境替换为 uuid + 线程 id
         String VALUE = String.valueOf(Thread.currentThread().getId());
         Boolean isLocked = stringRedisTemplate.execute(new RedisCallback<Boolean>() {
@@ -46,10 +45,41 @@ public class AppController {
             }
         });
         if (Boolean.TRUE.equals(isLocked)) {
+            // 判断是否是自己加的锁，如果是则续期
+            String addlockLuaScript =
+                    "if redis.call('get',KEYS[1]) == ARGV[1] " +
+                            "then redis.call('expire',KEYS[1], ARGV[2]) ; " +
+                            "return true " +
+                            "else return false " +
+                            "end";
+            Thread watchDoge = new Thread(() -> {
+                while (Boolean.TRUE.equals(stringRedisTemplate.execute(new RedisCallback<Boolean>() {
+                    @Override
+                    public Boolean doInRedis(RedisConnection connection) throws DataAccessException {
+                        return connection.eval(addlockLuaScript.getBytes(),
+                                ReturnType.BOOLEAN,
+                                1,
+                                LOCK.getBytes(),
+                                VALUE.getBytes(),
+                                "5".getBytes());
+                    }
+                })) && !Thread.currentThread().isInterrupted()) {
+                    try {
+                        System.out.println(Thread.currentThread().isInterrupted());
+                        Thread.sleep(4000);
+                    } catch (Exception e) {
+                        break;
+                    }
+                }
+            });
+            watchDoge.setDaemon(true);
+            watchDoge.start();
             try {
                 int ticketCount = Integer.parseInt((String) stringRedisTemplate.opsForValue().get(KEY));
                 if (ticketCount > 0) {
                     stringRedisTemplate.opsForValue().set(KEY, String.valueOf(ticketCount - 1));
+//                    Thread.sleep(10000000);  // 在这里睡一下，可以到 redis 里面 TTL TICKETSELLER 查看锁是否被续期
+                    watchDoge.interrupt();
                     System.out.println("I get a ticket!");
                 }
             } catch (Exception e) {
