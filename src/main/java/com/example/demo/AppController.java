@@ -81,6 +81,8 @@ public class AppController {
 //                    Thread.sleep(10000000);  // 在这里睡一下，可以到 redis 里面 TTL TICKETSELLER 查看锁是否被续期
                     watchDoge.interrupt();
                     System.out.println("I get a ticket!");
+                } else {
+                    System.out.println("Field");
                 }
             } catch (Exception e) {
                 e.printStackTrace();
